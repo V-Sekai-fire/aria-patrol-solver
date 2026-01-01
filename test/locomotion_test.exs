@@ -132,11 +132,12 @@ defmodule AriaPatrolSolver.Domains.LocomotionTest do
     test "domain has required actions" do
       {:ok, domain} = Locomotion.create_domain()
       action_names = Enum.map(domain.actions, & &1.name)
+      command_names = Enum.map(domain.commands, & &1.name)
 
       assert "a_move_to" in action_names
       assert "a_rotate_to" in action_names
       assert "a_move_and_rotate" in action_names
-      assert "a_mark_waypoint_reached" in action_names
+      assert "c_mark_waypoint_reached" in command_names
     end
 
     test "domain has task methods" do

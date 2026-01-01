@@ -43,16 +43,216 @@ defmodule AriaPatrolSolver.Domains.Locomotion do
              is_boolean(maze_mode) and
              is_integer(grid_width) and grid_width > 0 and
              is_integer(grid_height) and grid_height > 0 do
-    case create_planning_domain() do
+    # Load domain from HDDL file (primary source)
+    domain_name = if maze_mode, do: "locomotion_maze", else: "locomotion_3d"
+    
+    case load_domain_from_hddl(domain_name) do
       {:ok, domain} ->
-        domain = register_actions(domain)
-        domain = register_task_methods(domain)
-        domain = register_goal_methods(domain)
+        # Add runtime configuration parameters
         domain = Map.put(domain, :maze_mode, maze_mode)
+        domain = Map.put(domain, :sphere_points, sphere_points)
+        domain = Map.put(domain, :grid_width, grid_width)
+        domain = Map.put(domain, :grid_height, grid_height)
+        {:ok, domain}
+
+      {:error, reason} ->
+        {:error, "Failed to load domain from HDDL file #{domain_name}.hddl: #{inspect(reason)}"}
+    end
+  end
+
+  defp load_domain_from_hddl(domain_name) do
+    alias AriaPatrolSolver.HDDL
+    alias AriaPlanner.HDDL, as: PlannerHDDL
+
+    path = HDDL.domain_path(domain_name)
+
+    case PlannerHDDL.import_from_file(path) do
+      {:ok, %AriaCore.PlanningDomain{} = planning_domain} ->
+        # Extract methods and multigoals from HDDL file directly since PlanningDomain doesn't store them properly
+        methods = extract_methods_from_hddl(path)
+        multigoals = extract_multigoals_from_hddl(path)
+        
+        # Convert PlanningDomain back to domain map format
+        # Actions and commands from HDDL are already in map format
+        domain = %{
+          type: "locomotion",  # Keep locomotion type for backward compatibility
+          predicates: extract_predicates_from_domain(planning_domain),
+          actions: normalize_actions(planning_domain.actions),
+          commands: normalize_commands(planning_domain.commands),
+          methods: methods,
+          goal_methods: multigoals,
+          created_at: planning_domain.inserted_at || DateTime.utc_now()
+        }
         {:ok, domain}
 
       error ->
         error
+    end
+  end
+
+  defp extract_methods_from_hddl(path) do
+    # Read and parse HDDL file to extract methods
+    case File.read(path) do
+      {:ok, content} ->
+        # Parse HDDL content to find methods
+        extract_methods_from_hddl_content(content)
+      
+      _ ->
+        []
+    end
+  end
+
+  defp extract_methods_from_hddl_content(content) do
+    # Extract methods and their tasks from HDDL content
+    # Methods are defined as (:method method_name ... :task (task_name ...))
+    method_pattern = ~r/\(:method\s+(\w+)[\s\S]*?:task\s+\((\w+)/s
+    
+    Regex.scan(method_pattern, content)
+    |> Enum.map(fn [_, _method_name, task_name] ->
+      # Use task name (without t_ prefix) as the method name for backward compatibility
+      method_name = String.replace(task_name, ~r/^t_/, "")
+      %{
+        name: method_name,
+        type: "task",
+        arity: 2,  # Default arity, will be determined from actual usage
+        decomposition: "Extracted from HDDL method for task #{task_name}"
+      }
+    end)
+    |> Enum.uniq_by(& &1.name)  # Remove duplicates
+  end
+
+  defp extract_multigoals_from_hddl(path) do
+    # Read and parse HDDL file to extract multigoals
+    case File.read(path) do
+      {:ok, content} ->
+        extract_multigoals_from_hddl_content(content)
+      
+      _ ->
+        []
+    end
+  end
+
+  defp extract_multigoals_from_hddl_content(content) do
+    # Extract multigoal methods from HDDL content
+    # Multigoals are defined as (:multigoal-method method_name ... :multigoal (task_name ...))
+    multigoal_pattern = ~r/\(:multigoal-method\s+(\w+)[\s\S]*?:multigoal\s+\((\w+)/s
+    
+    Regex.scan(multigoal_pattern, content)
+    |> Enum.map(fn [_, _method_name, task_name] ->
+      # Use task name (without t_ prefix) as the method name
+      method_name = String.replace(task_name, ~r/^t_/, "")
+      %{
+        name: method_name,
+        type: "multigoal",
+        arity: 2,
+        predicate: nil,
+        decomposition: "Extracted from HDDL multigoal method for task #{task_name}"
+      }
+    end)
+    |> Enum.uniq_by(& &1.name)  # Remove duplicates
+  end
+
+  defp normalize_actions(actions) when is_list(actions) do
+    Enum.map(actions, fn action ->
+      # Actions from HDDL are already in map format with :name, :parameters, etc.
+      # Ensure they have the expected structure
+      case action do
+        %{name: name} = act when is_binary(name) or is_atom(name) ->
+          act
+          |> Map.put(:name, to_string(name))
+          |> Map.put(:arity, length(Map.get(act, :parameters, [])))
+
+        _ ->
+          action
+      end
+    end)
+  end
+
+  defp normalize_actions(_), do: []
+
+  defp normalize_commands(commands) when is_list(commands) do
+    Enum.map(commands, fn command ->
+      # Commands from HDDL are already in map format with :name, :parameters, etc.
+      # Ensure they have the expected structure
+      case command do
+        %{name: name} = cmd when is_binary(name) or is_atom(name) ->
+          cmd
+          |> Map.put(:name, to_string(name))
+          |> Map.put(:type, "command")
+          |> Map.put(:arity, length(Map.get(cmd, :parameters, [])))
+
+        _ ->
+          command
+      end
+    end)
+  end
+
+  defp normalize_commands(_), do: []
+
+  defp normalize_tasks(tasks) when is_list(tasks) do
+    Enum.map(tasks, fn task ->
+      case task do
+        %{name: name} = tsk when is_binary(name) or is_atom(name) ->
+          tsk
+          |> Map.put(:name, to_string(name))
+          |> Map.put(:type, "task")
+          |> Map.put(:arity, length(Map.get(tsk, :parameters, [])))
+
+        _ ->
+          task
+      end
+    end)
+  end
+
+  defp normalize_tasks(_), do: []
+
+  defp normalize_multigoals(multigoals) when is_list(multigoals) do
+    Enum.map(multigoals, fn multigoal ->
+      case multigoal do
+        %{name: name} = mg when is_binary(name) or is_atom(name) ->
+          mg
+          |> Map.put(:name, to_string(name))
+          |> Map.put(:type, "multigoal")
+          |> Map.put(:arity, length(Map.get(mg, :parameters, [])))
+
+        _ ->
+          multigoal
+      end
+    end)
+  end
+
+  defp normalize_multigoals(_), do: []
+
+  defp extract_predicates_from_domain(%AriaCore.PlanningDomain{} = _domain) do
+    # Extract predicates from domain metadata or return defaults
+    [
+      "quantized_position",
+      "quantized_rotation",
+      "entity_speed",
+      "movement_type",
+      "waypoint_reached"
+    ]
+  end
+
+  defp export_domain_to_hddl(domain) do
+    alias AriaPatrolSolver.Domains.Locomotion.HDDL
+    alias AriaPatrolSolver.HDDL, as: SolverHDDL
+    alias AriaPlanner.HDDL, as: PlannerHDDL
+
+    SolverHDDL.ensure_directories()
+    domain_name = "locomotion_#{if domain.maze_mode, do: "maze", else: "3d"}"
+    path = SolverHDDL.domain_path(domain_name)
+
+    planning_domain = HDDL.to_planning_domain(domain)
+
+    case PlannerHDDL.export_to_file(planning_domain, path) do
+      :ok ->
+        require Logger
+        Logger.info("Exported locomotion domain to HDDL: #{path}")
+
+      error ->
+        require Logger
+        Logger.warning("Failed to export domain to HDDL: #{inspect(error)}")
     end
   end
 

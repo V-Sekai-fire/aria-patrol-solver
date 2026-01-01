@@ -225,15 +225,80 @@ defmodule AriaPatrolSolver.Solver do
   end
 
   defp create_plan(optimized_sequence, entity_speed) do
-    plan_attrs = %{
-      name: "patrol_scattered_waypoints",
-      persona_id: "test_persona",
-      domain_type: "locomotion",
-      objectives: [{"patrol", "entity1", optimized_sequence}],
-      entity_capabilities: %{"entity1" => %{speed: entity_speed, movement_type: "walking"}}
-    }
+    plan_name = "patrol_scattered_waypoints"
+    
+    # Try to load plan from HDDL first
+    case load_plan_from_hddl(plan_name) do
+      {:ok, plan} ->
+        # Update plan with current waypoint sequence
+        plan_attrs = %{
+          name: plan_name,
+          persona_id: plan.persona_id || "test_persona",
+          domain_type: plan.domain_type || "locomotion",
+          objectives: [{"patrol", "entity1", optimized_sequence}],
+          entity_capabilities: %{"entity1" => %{speed: entity_speed, movement_type: "walking"}}
+        }
+        
+        case Plan.create(plan_attrs) do
+          {:ok, updated_plan} ->
+            # Export updated plan to HDDL
+            export_plan_to_hddl(updated_plan)
+            {:ok, updated_plan}
 
-    Plan.create(plan_attrs)
+          error ->
+            error
+        end
+
+      {:error, _reason} ->
+        # Create new plan if HDDL file doesn't exist
+        plan_attrs = %{
+          name: plan_name,
+          persona_id: "test_persona",
+          domain_type: "locomotion",
+          objectives: [{"patrol", "entity1", optimized_sequence}],
+          entity_capabilities: %{"entity1" => %{speed: entity_speed, movement_type: "walking"}}
+        }
+
+        case Plan.create(plan_attrs) do
+          {:ok, plan} ->
+            # Export plan to HDDL
+            export_plan_to_hddl(plan)
+            {:ok, plan}
+
+          error ->
+            error
+        end
+    end
+  end
+
+  defp load_plan_from_hddl(plan_name) do
+    alias AriaPatrolSolver.HDDL
+    alias AriaPlanner.HDDL, as: PlannerHDDL
+
+    path = HDDL.problem_path(plan_name)
+
+    case PlannerHDDL.import_from_file(path) do
+      {:ok, %Plan{} = plan} -> {:ok, plan}
+      error -> error
+    end
+  end
+
+  defp export_plan_to_hddl(plan) do
+    alias AriaPatrolSolver.HDDL
+    alias AriaPlanner.HDDL, as: PlannerHDDL
+
+    HDDL.ensure_directories()
+    path = HDDL.problem_path(plan.name)
+
+    case PlannerHDDL.export_to_file(plan, path) do
+      :ok ->
+        require Logger
+        Logger.info("Exported plan to HDDL: #{path}")
+
+      error ->
+        require Logger
+        Logger.warning("Failed to export plan to HDDL: #{inspect(error)}")
+    end
   end
 
   # Use aria planner to solve the maze navigation problem
