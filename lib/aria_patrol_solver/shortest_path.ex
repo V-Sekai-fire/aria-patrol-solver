@@ -28,7 +28,7 @@ defmodule AriaPatrolSolver.ShortestPath do
           start_distances :: map(),
           distance_matrix :: map()
         ) :: [String.t()]
-  def find_shortest_path(waypoints, start_pos_idx, state, start_distances, distance_matrix) do
+  def find_shortest_path(waypoints, _start_pos_idx, _state, start_distances, distance_matrix) do
     # Start with nearest waypoint to start position
     {first_wp_id, _first_dist} = Enum.min_by(start_distances, fn {_id, dist} -> dist end)
 

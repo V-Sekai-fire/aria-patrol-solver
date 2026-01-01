@@ -23,7 +23,7 @@ defmodule AriaPatrolSolver.MixProject do
 
   defp deps do
     [
-      {:aria_planner, git: "https://github.com/V-Sekai-fire/aria-planner.git", ref: "c79744ad"},
+      {:aria_planner, git: "https://github.com/V-Sekai-fire/aria-planner.git", branch: "main"},
       {:jason, "~> 1.4"}
     ]
   end

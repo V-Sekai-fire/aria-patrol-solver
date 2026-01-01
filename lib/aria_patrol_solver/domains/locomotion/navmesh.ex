@@ -295,7 +295,7 @@ defmodule AriaPatrolSolver.Domains.Locomotion.Navmesh do
     end
   end
 
-  defp point_in_triangle?({px, py, pz}, {x1, y1, z1}, {x2, y2, z2}, {x3, y3, z3}) do
+  defp point_in_triangle?({px, py, _pz}, {x1, y1, _z1}, {x2, y2, _z2}, {x3, y3, _z3}) do
     # Barycentric coordinates test for point in triangle
     # Simplified: check if point is within triangle bounds (2D projection to XY plane)
     v0x = x3 - x1
@@ -336,7 +336,7 @@ defmodule AriaPatrolSolver.Domains.Locomotion.Navmesh do
     {:ok, []}
   end
 
-  defp astar_pathfind(navmesh, from_face, to_face) do
+  defp astar_pathfind(_navmesh, from_face, to_face) do
     # Simple A* pathfinding on face graph
     # For grid-based navmesh, use Manhattan distance heuristic
     # credo:disable-for-next-line
